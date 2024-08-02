@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:provider/provider.dart';
 import 'package:tawkie/pages/add_bridge/add_bridge.dart';
+import 'package:tawkie/utils/bridge_utils.dart';
 import 'package:tawkie/utils/webview_scripts.dart';
 import 'package:tawkie/widgets/future_loading_dialog_custom.dart';
 import 'package:tawkie/widgets/notifier_state.dart';
@@ -29,21 +30,27 @@ class _WebViewConnectionState extends State<WebViewConnection> {
   InAppWebViewController? _webViewController;
   final cookieManager = WebviewCookieManager();
   bool _isDisposed = false; // Variable to track widget status
-  bool _facebookBridgeCreated =
-      false; // Variable to track if the Facebook bridge has been created
-  bool _instagramBridgeCreated =
-      false; // Variable to track if the Instagram bridge has been created
-  bool _linkedinBridgeCreated =
-      false; // Variable to track if the Linkedin bridge has been created
+  // track if the Facebook bridge has been created
+  bool _facebookBridgeCreated = false;
+  bool _instagramBridgeCreated = false;
+  bool _linkedinBridgeCreated = false;
+  bool _discordBridgeCreated = false;
+  late SocialNetworkEnum socialNetwork;
 
   @override
   void initState() {
     super.initState();
-    _clearCookies();
+    socialNetwork = getSocialNetworkEnum(widget.network.name)!;
+    _clearCookiesAndData();
   }
 
-  Future<void> _clearCookies() async {
+  Future<void> _clearCookiesAndData() async {
     await cookieManager.clearCookies();
+    // Clear localStorage and sessionStorage
+    if (_webViewController != null) {
+      await _webViewController!
+          .evaluateJavascript(source: clearCookiesAndStorage);
+    }
   }
 
   @override
@@ -68,9 +75,27 @@ class _WebViewConnectionState extends State<WebViewConnection> {
 
   // Add custom style to the login page to make it more user-friendly
   Future<void> _addCustomStyle() async {
-    if (_isMessenger() && _webViewController != null) {
-      await _webViewController!
-          .evaluateJavascript(source: getCombinedScriptMessenger());
+    if (_webViewController != null) {
+      switch (socialNetwork) {
+        case SocialNetworkEnum.FacebookMessenger:
+          await _webViewController!
+              .evaluateJavascript(source: getCombinedScriptMessenger());
+          break;
+        case SocialNetworkEnum.Instagram:
+          await _webViewController!
+              .evaluateJavascript(source: getCombinedScriptInstagram());
+          break;
+        case SocialNetworkEnum.Linkedin:
+          await _webViewController!
+              .evaluateJavascript(source: getCombinedScriptLinkedin());
+          break;
+        case SocialNetworkEnum.Discord:
+          await _webViewController!
+              .evaluateJavascript(source: getCombinedScriptDiscord());
+          break;
+        default:
+          return; // Or throw an exception if you prefer
+      }
     }
   }
 
@@ -103,14 +128,15 @@ class _WebViewConnectionState extends State<WebViewConnection> {
         initialUrlRequest: URLRequest(
           url: WebUri(widget.network.urlLogin!),
         ),
-        onWebViewCreated: (InAppWebViewController controller) {
+        onWebViewCreated: (InAppWebViewController controller) async {
           if (_isDisposed) return; // Prevent further operations if disposed
           _webViewController = controller;
+          await _clearCookiesAndData();
         },
         onLoadStop: (InAppWebViewController controller, Uri? url) async {
           // Check the URL when the page finishes loading
-          switch (widget.network.name) {
-            case "Facebook Messenger":
+          switch (socialNetwork) {
+            case SocialNetworkEnum.FacebookMessenger:
               final successfullyRedirected = !_facebookBridgeCreated &&
                   url != null &&
                   url.toString() != widget.network.urlLogin! &&
@@ -135,11 +161,13 @@ class _WebViewConnectionState extends State<WebViewConnection> {
               }
               break;
 
-            case "Instagram":
-              if (!_instagramBridgeCreated &&
+            case SocialNetworkEnum.Instagram:
+              final successfullyRedirected = !_instagramBridgeCreated &&
                   url != null &&
                   url.toString() != widget.network.urlLogin! &&
-                  url.toString().contains(widget.network.urlRedirect!)) {
+                  url.toString().contains(widget.network.urlRedirect!);
+
+              if (successfullyRedirected) {
                 // Close the WebView
                 await _closeWebView();
                 await showCustomLoadingDialog(
@@ -152,10 +180,12 @@ class _WebViewConnectionState extends State<WebViewConnection> {
                         cookieManager, connectionState, widget.network);
                   },
                 );
+              } else {
+                await _addCustomStyle();
               }
               break;
 
-            case "Linkedin":
+            case SocialNetworkEnum.Linkedin:
               if (!_linkedinBridgeCreated &&
                   url != null &&
                   url.toString().contains(widget.network.urlRedirect!)) {
@@ -164,16 +194,26 @@ class _WebViewConnectionState extends State<WebViewConnection> {
                 await showCustomLoadingDialog(
                   context: context,
                   future: () async {
-                    // Mark the Instagram bridge as created
+                    // Mark the Linkedin bridge as created
                     _linkedinBridgeCreated = true;
 
                     await widget.controller.createBridgeLinkedin(context,
                         cookieManager, connectionState, widget.network);
                   },
                 );
+              } else {
+                await _addCustomStyle();
               }
               break;
-            // Other network
+
+            case SocialNetworkEnum.Discord:
+              if (!_discordBridgeCreated && url != null) {
+                await _addCustomStyle();
+              }
+              break;
+            default:
+              // Handle default case or other social networks if necessary
+              break;
           }
 
           if (widget.network.connected && !_isDisposed) {
@@ -182,6 +222,38 @@ class _WebViewConnectionState extends State<WebViewConnection> {
 
             // Close the current page
             Navigator.pop(context);
+          }
+        },
+        onReceivedHttpError: (InAppWebViewController controller,
+            WebResourceRequest request, WebResourceResponse response) async {
+          switch (socialNetwork) {
+            case SocialNetworkEnum.Discord:
+              String? authorizationHeaderValue = widget.controller
+                  .extractAuthorizationHeader(request.headers!);
+
+              if (authorizationHeaderValue != null) {
+                if (!_discordBridgeCreated) {
+                  // Close the WebView
+                  await _closeWebView();
+                }
+                await showCustomLoadingDialog(
+                  context: context,
+                  future: () async {
+                    await widget.controller.createBridgeDiscord(
+                        context,
+                        cookieManager,
+                        connectionState,
+                        widget.network,
+                        authorizationHeaderValue);
+                  },
+                );
+                // Close the current page
+                Navigator.pop(context);
+              }
+              break;
+            default:
+              // Handle default case or other social networks if necessary
+              break;
           }
         },
       ),

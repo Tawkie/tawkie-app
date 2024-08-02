@@ -5,7 +5,13 @@ import 'package:matrix/matrix_api_lite/utils/logs.dart';
 import 'package:tawkie/pages/add_bridge/model/social_network.dart';
 import 'package:tawkie/pages/add_bridge/service/reg_exp_pattern.dart';
 
-enum SocialNetworkEnum { WhatsApp, FacebookMessenger, Instagram, Linkedin }
+enum SocialNetworkEnum {
+  WhatsApp,
+  FacebookMessenger,
+  Instagram,
+  Linkedin,
+  Discord
+}
 
 SocialNetworkEnum? getSocialNetworkEnum(String name) {
   switch (name) {
@@ -17,6 +23,8 @@ SocialNetworkEnum? getSocialNetworkEnum(String name) {
       return SocialNetworkEnum.Instagram;
     case "Linkedin":
       return SocialNetworkEnum.Linkedin;
+    case "Discord":
+      return SocialNetworkEnum.Discord;
     default:
       return null; // Or throw an exception if you prefer
   }
@@ -100,6 +108,11 @@ RegExpPingPatterns getPingPatterns(SocialNetworkEnum network) {
         PingPatterns.linkedinOnlineMatch,
         PingPatterns.linkedinNotLoggedMatch,
       );
+    case SocialNetworkEnum.Discord:
+      return RegExpPingPatterns(
+        PingPatterns.discordOnlineMatch,
+        PingPatterns.discordNotLoggedMatch,
+      );
     default:
       throw Exception("Unsupported social network: $network");
   }
@@ -127,6 +140,11 @@ Map<String, RegExp> getLogoutNetworkPatterns(SocialNetworkEnum network) {
       return {
         'logoutSuccess': LogoutRegex.linkedinSuccessMatch,
         'alreadyLoggedOut': LogoutRegex.linkedinAlreadyLogoutMatch
+      };
+    case SocialNetworkEnum.Discord:
+      return {
+        'logoutSuccess': LogoutRegex.discordSuccessMatch,
+        'alreadyLoggedOut': LogoutRegex.discordAlreadyLogoutMatch
       };
     default:
       throw ArgumentError('Unsupported network: $network');

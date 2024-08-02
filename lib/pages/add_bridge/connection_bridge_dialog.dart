@@ -16,11 +16,9 @@ import 'model/social_network.dart';
 GlobalKey<FormState> formKey = GlobalKey<FormState>();
 
 // ShowDialog for WhatsApp connection
-Future<void> connectToWhatsApp(
-  BuildContext context,
-  SocialNetwork network,
-  BotController botConnection,
-) async {
+Future<void> connectToWhatsApp(BuildContext context,
+    SocialNetwork network,
+    BotController botConnection,) async {
   final Completer<bool> completer = Completer<bool>();
 
   final TextEditingController controller = TextEditingController();
@@ -36,11 +34,11 @@ Future<void> connectToWhatsApp(
       formKey.currentState!.save(); // Save form values
 
       final connectionStateModel =
-          Provider.of<ConnectionStateModel>(context, listen: false);
+      Provider.of<ConnectionStateModel>(context, listen: false);
 
       try {
         WhatsAppResult?
-            result; // Variable to store the result of the connection
+        result; // Variable to store the result of the connection
 
         // To show Loading while executing the function
         await showCustomLoadingDialog(
@@ -59,16 +57,17 @@ Future<void> connectToWhatsApp(
         } else if (result?.result == "scanTheCode") {
           // ShowDialog for code and QR Code login
           final bool success = await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => QRCodeConnectPage(
+            context,
+            MaterialPageRoute(
+              builder: (context) =>
+                  QRCodeConnectPage(
                     qrCode: result!.qrCode!,
                     code: result!.code!,
                     botConnection: botConnection,
                     socialNetwork: network,
                   ),
-                ),
-              ) ??
+            ),
+          ) ??
               false;
 
           if (success == true) {

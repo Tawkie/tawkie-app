@@ -22,6 +22,10 @@ class PingPatterns {
   // Linkedin
   static RegExp linkedinOnlineMatch = RegExp(r"You are logged in as");
   static RegExp linkedinNotLoggedMatch = RegExp(r"You are not logged in");
+
+  // Discord
+  static RegExp discordOnlineMatch = RegExp(r"You're logged in");
+  static RegExp discordNotLoggedMatch = RegExp(r"You're not logged in");
 }
 
 // For login response
@@ -53,8 +57,15 @@ class LoginRegex {
   static final RegExp linkedinSuccessMatch = RegExp(r"Successfully logged in");
   static final RegExp linkedinAlreadySuccessMatch =
       RegExp(r"You're already logged in");
-
   static final RegExp linkedinNotLogged = RegExp(r"You are not logged in");
+
+  // Discord
+  static final RegExp discordSuccessMatch = RegExp(r'Connecting to Discord');
+  static final RegExp discordOtherSuccessMatch = RegExp(r"Successfully logged in");
+  static final RegExp discordAlreadySuccessMatch =
+      RegExp(r"You're already logged in");
+  static final RegExp discordTimeoutMatch =
+      RegExp(r"Error logging in: websocket: close sent");
 }
 
 // For logout response
@@ -81,6 +92,11 @@ class LogoutRegex {
   static final RegExp linkedinSuccessMatch = RegExp(r"Successfully logged out");
   static final RegExp linkedinAlreadyLogoutMatch =
       RegExp(r"You are not logged in.");
+
+  // Discord
+  static final RegExp discordSuccessMatch = RegExp(r"Logged out successfully.");
+  static final RegExp discordAlreadyLogoutMatch =
+      RegExp(r"You weren't logged in");
 }
 
 class RegExpPingPatterns {

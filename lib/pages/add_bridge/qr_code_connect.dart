@@ -4,6 +4,7 @@ import 'package:flutter_gen/gen_l10n/l10n.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:tawkie/pages/add_bridge/add_bridge.dart';
 import 'package:tawkie/pages/add_bridge/model/social_network.dart';
+import 'package:tawkie/widgets/mxc_image.dart';
 
 class QRCodeConnectPage extends StatefulWidget {
   final String qrCode;
@@ -30,8 +31,10 @@ class _QRCodeConnectPageState extends State<QRCodeConnectPage> {
   @override
   void initState() {
     super.initState();
+
     widget.botConnection.continueProcess = true;
-    responseFuture = widget.botConnection.fetchDataWhatsApp();
+
+    responseFuture = widget.botConnection.fetchData(widget.socialNetwork);
   }
 
   @override
@@ -119,6 +122,28 @@ class QRExplanation extends StatelessWidget {
           size: 300,
         );
         break;
+
+      case "Discord":
+        qrExplains = [
+          L10n.of(context)!.discordQrExplainOne,
+          L10n.of(context)!.discordQrExplainTwo,
+          L10n.of(context)!.discordQrExplainTree,
+          L10n.of(context)!.discordQrExplainFour,
+          L10n.of(context)!.discordQrExplainFive,
+          L10n.of(context)!.discordQrExplainSix,
+          L10n.of(context)!.discordQrExplainSeven,
+          L10n.of(context)!.discordQrExplainEight,
+          L10n.of(context)!.discordQrExplainNine,
+        ];
+
+        qrWidget =  MxcImage(
+          uri: Uri.parse(qrCode),
+          width: 500,
+          height: 500,
+          fit: BoxFit.cover,
+        );
+        break;
+
       default:
         qrWidget = QrImageView(
           data: qrCode,
@@ -149,7 +174,7 @@ class QRExplanation extends StatelessWidget {
             padding: const EdgeInsets.all(2.0),
             child: Text(
               code,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
                 decoration: null,
@@ -271,7 +296,9 @@ class QRFutureBuilder extends StatelessWidget {
             TextButton(
               onPressed: () {
                 Navigator.of(context).pop();
-                Navigator.of(context).pop();
+                if (network.name != "Discord") {
+                  Navigator.of(context).pop();
+                }
               },
               child: Text(
                 L10n.of(context)!.ok,
