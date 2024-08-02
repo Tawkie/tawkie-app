@@ -109,6 +109,7 @@ dependencies:
   built_collection: ^5.1.1
   built_value: ^8.9.2
   back_button_interceptor: ^7.0.3
+  matomo_tracker: ^5.0.0+1
 
 dev_dependencies:
   flutter_lints: ^3.0.0

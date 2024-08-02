@@ -9,18 +9,20 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_gen/gen_l10n/l10n.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
 import 'package:matrix/matrix.dart';
 import 'package:one_of/one_of.dart';
 import 'package:ory_kratos_client/ory_kratos_client.dart' as kratos;
+import 'package:provider/provider.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:tawkie/config/app_config.dart';
 import 'package:tawkie/pages/auth/login_view.dart';
 import 'package:tawkie/pages/auth/privacy_policy_text.dart';
 import 'package:tawkie/pages/auth/register_view.dart';
 import 'package:tawkie/pages/auth/web_login.dart';
+import 'package:tawkie/services/matomo/tracking_service.dart';
 import 'package:tawkie/utils/platform_infos.dart';
+import 'package:tawkie/utils/secure_storage.dart';
 import 'package:tawkie/widgets/matrix.dart';
 import 'package:tawkie/widgets/show_error_dialog.dart';
 
@@ -43,7 +45,6 @@ class AuthController extends State<Auth> {
   bool loading = true;
   String baseUrl = AppConfig.baseUrl;
   late final Dio dio;
-  final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
 
   kratos.FrontendApi? api;
   String? flowId;
@@ -63,7 +64,7 @@ class AuthController extends State<Auth> {
     if (widget.authType == AuthType.login) {
       getLoginOry();
       // Check if sessionToken exists and handle it
-      getSessionToken().then((sessionToken) {
+      SecureStorageUtil.getSessionToken().then((sessionToken) {
         if (sessionToken != null) {
           checkUserQueueState(sessionToken);
         }
@@ -99,16 +100,6 @@ class AuthController extends State<Auth> {
         getRegisterOry();
       }
     }
-  }
-
-  Future<void> storeSessionToken(String? sessionToken) async {
-    if (sessionToken != null) {
-      await _secureStorage.write(key: 'sessionToken', value: sessionToken);
-    }
-  }
-
-  Future<String?> getSessionToken() async {
-    return await _secureStorage.read(key: 'sessionToken');
   }
 
   bool _validateEmail(String email) {
@@ -167,6 +158,8 @@ class AuthController extends State<Auth> {
       Logs().v('Logging in with JWT into Matrix');
       // Connect with JWT and server name
       await matrixLogin(matrixLoginJwt, serverName);
+
+      await SecureStorageUtil.clearUserCreatedIndicator();
 
       // If all goes well, reset passwordError
       //setState(() => passwordError = null);
@@ -736,7 +729,8 @@ class AuthController extends State<Auth> {
       );
 
       final sessionToken = registerResponse.data?.sessionToken;
-      await storeSessionToken(sessionToken);
+      await SecureStorageUtil.storeSessionToken(sessionToken);
+      await SecureStorageUtil.storeUserCreatedIndicator();
 
       Logs().v('Registration successful');
       context.go('/home/login');
@@ -746,6 +740,11 @@ class AuthController extends State<Auth> {
       }
     } on MatrixException catch (exception) {
       setState(() => messageError = exception.errorMessage);
+
+      // Tracking registration error
+      Provider.of<TrackingService>(context, listen: false)
+          .trackAuthError('register', exception.errorMessage);
+
       return setState(() => loading = false);
     } on DioException catch (e) {
       if (kDebugMode) {
@@ -757,6 +756,10 @@ class AuthController extends State<Auth> {
       if (e.response?.data != null) {
         final errorMessage = e.response!.data['ui']['messages'][0]['text'];
         setState(() => messageError = errorMessage);
+
+        // Tracking registration error
+        Provider.of<TrackingService>(context, listen: false)
+            .trackAuthError('register', errorMessage);
       } else {
         setState(
           () => messageError = L10n.of(context)!.errTryAgain,
@@ -767,7 +770,14 @@ class AuthController extends State<Auth> {
       if (kDebugMode) {
         print(exception);
       }
+
+      final errorMessage = exception.toString();
       setState(() => messageError = L10n.of(context)!.errUsernameOrPassword);
+
+      // Tracking registration error
+      Provider.of<TrackingService>(context, listen: false)
+          .trackAuthError('register', errorMessage);
+
       return setState(() => loading = false);
     }
   }
@@ -800,10 +810,21 @@ class AuthController extends State<Auth> {
       }
 
       final sessionToken = loginResponse.data?.sessionToken;
-      await storeSessionToken(sessionToken);
+      final userUUID = loginResponse.data?.session.id;
+      if (kDebugMode) {
+        print("session id $userUUID");
+      }
+
+      await SecureStorageUtil.storeSessionToken(sessionToken);
+      await SecureStorageUtil.storeUserUUID(userUUID);
       return checkUserQueueState(sessionToken!);
     } on MatrixException catch (exception) {
       setState(() => messageError = exception.errorMessage);
+
+      // Tracking login error
+      Provider.of<TrackingService>(context, listen: false)
+          .trackAuthError('login', exception.errorMessage);
+
       return setState(() => loading = false);
     } on DioException catch (e) {
       if (kDebugMode) {
@@ -812,25 +833,39 @@ class AuthController extends State<Auth> {
       }
 
       final response = e.response?.data;
-      print("Response data: $response");
+      if (kDebugMode) {
+        print("Response data: $response");
+      }
 
+      String errorMessage;
       if (response == null) {
-        setState(() => messageError = L10n.of(context)!.errTryAgain);
+        errorMessage = L10n.of(context)!.errTryAgain;
       } else if (response["error"]?["reason"]?.isNotEmpty ?? false) {
-        setState(() => messageError = response["error"]["reason"]);
+        errorMessage = response["error"]["reason"];
       } else if (response["ui"]?["messages"]?[0]?["text"]?.isNotEmpty ??
           false) {
-        setState(() => messageError = response["ui"]["messages"][0]["text"]);
+        errorMessage = response["ui"]["messages"][0]["text"];
       } else {
-        setState(() => messageError = L10n.of(context)!.errTryAgain);
+        errorMessage = L10n.of(context)!.errTryAgain;
       }
+      setState(() => messageError = errorMessage);
+
+      // Tracking login error
+      Provider.of<TrackingService>(context, listen: false)
+          .trackAuthError('login', errorMessage);
 
       return setState(() => loading = false);
     } catch (exception) {
       if (kDebugMode) {
         print(exception);
       }
-      setState(() => messageError = exception.toString());
+      final errorMessage = exception.toString();
+      setState(() => messageError = errorMessage);
+
+      // Tracking login error
+      Provider.of<TrackingService>(context, listen: false)
+          .trackAuthError('login', errorMessage);
+
       return setState(() => loading = false);
     }
   }

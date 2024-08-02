@@ -5,13 +5,18 @@ import 'package:flutter/material.dart';
 
 import 'package:collection/collection.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:matomo_tracker/matomo_tracker.dart';
 import 'package:matrix/matrix.dart';
+import 'package:provider/provider.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:tawkie/config/app_config.dart';
+import 'package:tawkie/services/matomo/tracking_service.dart';
+import 'package:tawkie/utils/app_lifecycle_observer.dart';
 import 'package:tawkie/utils/client_manager.dart';
 import 'package:tawkie/utils/platform_infos.dart';
+import 'package:tawkie/utils/secure_storage.dart';
 import 'package:tawkie/widgets/error_widget.dart';
 import 'config/setting_keys.dart';
 import 'utils/background_push.dart';
@@ -24,6 +29,25 @@ void main() async {
   // To make sure that the parts of flutter needed are started up already, we need to ensure that the
   // widget bindings are initialized already.
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Matomo Tracker
+  await MatomoTracker.instance.initialize(
+    siteId: '1',
+    url: 'https://metrics.staging.tawkie.fr/matomo.php',
+  );
+
+  final trackingService = TrackingService();
+  final lifecycleObserver = AppLifecycleObserver(trackingService: trackingService);
+
+  WidgetsBinding.instance.addObserver(lifecycleObserver);
+
+  final userUUID = await SecureStorageUtil.getUserUUID();
+
+  // Track app open event
+  if(userUUID != null) trackingService.trackAppOpen(userUUID);
+
+  await trackingService.trackDeviceUsage();
+
   if (PlatformInfos.shouldInitializePurchase()) {
     await initPlatformState();
   }
@@ -98,8 +122,18 @@ Future<void> startGui(List<Client> clients, SharedPreferences store) async {
   await firstClient?.roomsLoading;
   await firstClient?.accountDataLoading;
 
+  // Check if the user is already connected
+  if (firstClient != null) {
+    await SecureStorageUtil.clearUserCreatedIndicator();
+  }
+
   ErrorWidget.builder = (details) => FluffyChatErrorWidget(details);
-  runApp(FluffyChatApp(clients: clients, pincode: pin, store: store));
+  runApp(
+      ChangeNotifierProvider(
+        create: (context) => TrackingService(),
+        child: FluffyChatApp(clients: clients, pincode: pin, store: store),
+      ),
+  );
 }
 
 /// Watches the lifecycle changes to start the application when it

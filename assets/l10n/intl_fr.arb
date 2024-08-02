@@ -2881,5 +2881,7 @@
     "leaveTheConvDesc": "Voulez-vous vraiment quitter cette conversation ?",
     "leaveTheConvSuccess": "Vous avez quitté la conversation.",
     "chatBotRoomsTitle": "Conversations des bots",
-    "chatBotRoomsNotFound": "Aucune conversation avec les bots."
+    "chatBotRoomsNotFound": "Aucune conversation avec les bots.",
+    "npsQuestion": "[Sur une échelle de un à dix,] à quel point recommanderais-tu Tawkie à tes ami.es, tes collègues, ta famille ?",
+    "npsResponse": "Merci pour votre feedback !"
 }
