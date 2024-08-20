@@ -6,12 +6,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_gen/gen_l10n/l10n.dart';
 import 'package:matrix/matrix.dart';
 import 'package:tawkie/pages/add_bridge/add_bridge_body.dart';
+import 'package:tawkie/pages/add_bridge/qr_code_connect.dart';
 import 'package:tawkie/pages/add_bridge/service/hostname.dart';
 import 'package:tawkie/pages/add_bridge/service/reg_exp_pattern.dart';
 import 'package:tawkie/pages/add_bridge/show_bottom_sheet.dart';
 import 'package:tawkie/pages/add_bridge/success_message.dart';
 import 'package:tawkie/pages/add_bridge/web_view_connection.dart';
 import 'package:tawkie/utils/bridge_utils.dart';
+import 'package:tawkie/utils/platform_infos.dart';
+import 'package:tawkie/widgets/future_loading_dialog_custom.dart';
 import 'package:tawkie/widgets/matrix.dart';
 import 'package:tawkie/widgets/notifier_state.dart';
 import 'package:webview_cookie_manager/webview_cookie_manager.dart';
@@ -581,6 +584,71 @@ class BotController extends State<AddBridge> {
           ),
         );
         break;
+      case "Discord":
+        // Trying to connect to Discord
+
+        if (!PlatformInfos.isMobile) {
+          // Trying to connect to discord
+          try {
+            DiscordResult?
+                result; // Variable to store the result of the connection
+
+            // To show Loading while executing the function
+            await showCustomLoadingDialog(
+              context: context,
+              future: () async {
+                result = await createBridgeDiscordQRCode(context, network);
+              },
+            );
+
+            if (result?.result == "Error logging in: websocket: close sent") {
+              // Display a showDialog with an error message related to the password
+              showCatchErrorDialog(context, L10n.of(context)!.errTimeOut);
+            } else {
+              // ShowDialog for code and QR Code login
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => QRCodeConnectPage(
+                    qrCode: result!.qrCode!,
+                    code: result!.urlLink!,
+                    botConnection: this,
+                    socialNetwork: network,
+                  ),
+                ),
+              );
+            }
+          } catch (e) {
+            Navigator.of(context).pop();
+            //To view other catch-related errors
+            showCatchErrorDialog(context, e);
+          }
+        } else {
+          // Navigate to WebViewConnection and provide callback function
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => WebViewConnection(
+                controller: this,
+                network: network,
+                onConnectionResult: (bool success) {
+                  if (success) {
+                    setState(() {
+                      network.connected = true;
+                    });
+                    showCatchSuccessDialog(context,
+                        "${L10n.of(context)!.youAreConnectedTo} ${network.name}");
+                  } else {
+                    // Handle connection failure
+                    showCatchErrorDialog(context,
+                        "${L10n.of(context)!.errToConnect} ${network.name}");
+                  }
+                },
+              ),
+            ),
+          );
+        }
+        break;
     }
   }
 
@@ -737,6 +805,10 @@ class BotController extends State<AddBridge> {
   // 📌 ************************** WhatsApp **************************
   // 📌 ***********************************************************************
 
+  SocialNetwork? getWhatsAppNetwork() {
+    return socialNetworks.firstWhere((network) => network.name == "WhatsApp");
+  }
+
   /// Create a bridge for WhatsApp
   Future<WhatsAppResult> createBridgeWhatsApp(BuildContext context,
       String phoneNumber, ConnectionStateModel connectionState) async {
@@ -828,23 +900,36 @@ class BotController extends State<AddBridge> {
     }
   }
 
-  /// Checks and processes the last message received for WhatsApp
-  Future<String> fetchDataWhatsApp() async {
-    final SocialNetwork? whatsAppNetwork =
-        SocialNetworkManager.fromName("WhatsApp");
-    if (whatsAppNetwork == null) {
-      throw Exception("WhatsApp network not found");
+  Future<String> fetchData(SocialNetwork network) async {
+    final String botUserId = '${network.chatBot}$hostname';
+    final SocialNetworkEnum? networkEnum =
+    getSocialNetworkEnum(network.name);
+
+    RegExp successMatch;
+    RegExp timeOutMatch;
+
+    switch (networkEnum) {
+      case SocialNetworkEnum.WhatsApp:
+        successMatch = LoginRegex.whatsAppSuccessMatch;
+        timeOutMatch = LoginRegex.whatsAppTimeoutMatch;
+        break;
+      case SocialNetworkEnum.Discord:
+        successMatch = LoginRegex.discordSuccessMatch;
+        timeOutMatch = LoginRegex.discordTimeoutMatch;
+        break;
+      default:
+        throw Exception("Unsupported network: ${network.name}");
     }
-
-    final String botUserId = '${whatsAppNetwork.chatBot}$hostname';
-
-    final RegExp successMatch = LoginRegex.whatsAppSuccessMatch;
-    final RegExp timeOutMatch = LoginRegex.whatsAppTimeoutMatch;
 
     String? directChat = client.getDirectChatFromUserId(botUserId);
     directChat ??= await client.startDirectChat(botUserId);
 
     final Completer<String> completer = Completer<String>();
+
+    final SocialNetwork? whatsAppNetwork = getWhatsAppNetwork();
+    if (whatsAppNetwork == null) {
+      throw Exception("WhatsApp network not found");
+    }
 
     StreamSubscription? subscription;
     subscription = client.onEvent.stream.listen((eventUpdate) {
@@ -1030,6 +1115,180 @@ class BotController extends State<AddBridge> {
       }
     }
     return lastMessage;
+  }
+
+  // Discord
+  // Function for create and login bridge with QR Code Discord
+  Future<DiscordResult> createBridgeDiscordQRCode(
+      BuildContext context, SocialNetwork network) async {
+    // Element corresponding to the Discord social network
+    final String botUserId = network.chatBot;
+
+    // Success phrases to spot
+    final RegExp successMatch = LoginRegex.discordSuccessMatch;
+    final RegExp alreadySuccessMatch = LoginRegex.discordAlreadySuccessMatch;
+
+    // Error phrase to spot
+    final RegExp timeOutMatch = LoginRegex.discordTimeoutMatch;
+
+    // Add a direct chat with the bot (if you haven't already)
+    String? directChat = client.getDirectChatFromUserId(botUserId);
+    directChat ??= await client.startDirectChat(botUserId);
+
+    final Room? roomBot = client.getRoomById(directChat);
+
+    // Send the "login" message to the bot
+    await roomBot?.sendTextEvent("login-qr");
+    await Future.delayed(const Duration(seconds: 3)); // Wait sec
+
+    DiscordResult result; // Variable to track the result of the QR Code
+
+    // Get the latest messages from the room (limited to the specified number)
+    while (true) {
+      final GetRoomEventsResponse response = await client.getRoomEvents(
+        directChat,
+        Direction.b, // To get the latest messages
+        limit: 2, // Number of messages to obtain
+      );
+
+      final List<MatrixEvent> latestMessages = response.chunk;
+
+      final String latestMessageBody =
+          latestMessages.first.content['body'].toString();
+
+      final String urlQRCode = latestMessages.first.content['url'].toString();
+
+      if (latestMessages.isNotEmpty) {
+        if (successMatch.hasMatch(latestMessageBody) ||
+            alreadySuccessMatch.hasMatch(latestMessageBody)) {
+          Logs().v("You're already logged to Discord");
+
+          result = DiscordResult("Connected", "", "");
+
+          break; // Exit the loop once the "login" message has been sent and is success
+        } else if (timeOutMatch.hasMatch(latestMessageBody)) {
+          Logs().v("Login timed out");
+
+          result = DiscordResult("Time out", "", "");
+
+          break;
+        } else {
+          Logs().v("scanTheCode");
+
+          result = DiscordResult("scanTheCode", latestMessageBody, urlQRCode);
+
+          break;
+        }
+      }
+    }
+    return result;
+  }
+
+  String? extractAuthorizationHeader(Map<String, String> headers) {
+    String headersString = headers.toString();
+    RegExp regExp = RegExp(r'Authorization: ([^,]+)');
+    Match? match = regExp.firstMatch(headersString);
+
+    if (match != null && match.groupCount > 0) {
+      return match.group(1);
+    }
+    return null;
+  }
+
+  //Function to connect Discord with WebView
+  Future<void> createBridgeDiscord(
+      BuildContext context,
+      WebviewCookieManager cookieManager,
+      ConnectionStateModel connectionState,
+      SocialNetwork network,
+      String authorizationHeaderValue) async {
+    final String botUserId = '${network.chatBot}$hostname';
+
+    Future.microtask(() {
+      connectionState
+          .updateConnectionTitle(L10n.of(context)!.loadingDemandToConnect);
+    });
+
+    // Success phrases to spot
+    final RegExp successMatch = LoginRegex.discordSuccessMatch;
+    final RegExp othersSuccessMatch = LoginRegex.discordOtherSuccessMatch;
+    final RegExp alreadySuccessMatch = LoginRegex.discordAlreadySuccessMatch;
+
+    // Add a direct chat with the Discord bot (if you haven't already)
+    String? directChat = client.getDirectChatFromUserId(botUserId);
+    directChat ??= await client.startDirectChat(botUserId);
+
+    final Room? roomBot = client.getRoomById(directChat);
+
+    // Send the "login" message to the bot
+    await roomBot?.sendTextEvent("login-token user $authorizationHeaderValue");
+
+    await Future.delayed(const Duration(seconds: 3)); // Wait sec
+
+    Future.microtask(() {
+      connectionState
+          .updateConnectionTitle(L10n.of(context)!.loadingVerification);
+    });
+
+    await Future.delayed(const Duration(seconds: 1)); // Wait sec
+
+    // variable for loop limit
+    const int maxIterations = 5;
+    int currentIteration = 0;
+    String? latestMessage;
+
+    // Get the latest messages from the room (limited to the specified number)
+    while (currentIteration < maxIterations) {
+      final GetRoomEventsResponse response = await client.getRoomEvents(
+        directChat,
+        Direction.b, // To get the latest messages
+        limit: 2, // Number of messages to obtain
+      );
+
+      final List<MatrixEvent> latestMessages = response.chunk ?? [];
+      latestMessage = latestMessages.last.content['body'].toString() ?? '';
+      final String sender = latestMessages.last.senderId;
+
+      if (kDebugMode) {
+        print("latestMessage $latestMessage");
+      }
+      if (sender == botUserId) {
+        if (successMatch.hasMatch(latestMessage) ||
+            othersSuccessMatch.hasMatch(latestMessage) ||
+            alreadySuccessMatch.hasMatch(latestMessage)) {
+          Logs().v("You're logged to Discord");
+
+          Future.microtask(() {
+            connectionState.updateConnectionTitle(L10n.of(context)!.connected);
+          });
+
+          Future.microtask(() {
+            connectionState.updateLoading(false);
+          });
+
+          await Future.delayed(const Duration(seconds: 2)); // Wait sec
+
+          setState(() => network.updateConnectionResult(true));
+
+          await Future.delayed(const Duration(seconds: 1));
+
+          break;
+        }
+      }
+      await Future.delayed(const Duration(seconds: 3)); // Wait sec
+      currentIteration++;
+    }
+
+    if (currentIteration == maxIterations) {
+      Logs().v("Maximum iterations reached, setting result to 'error'");
+      showCatchErrorDialog(context,
+          "${L10n.of(context)!.errorConnectionText}.\nFaites nous part du message d'erreur rencontré: $latestMessage");
+      _handleError(network);
+    }
+
+    Future.microtask(() {
+      connectionState.reset();
+    });
   }
 
   @override

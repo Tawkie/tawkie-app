@@ -64,6 +64,15 @@ class WhatsAppResult {
   WhatsAppResult(this.result, this.code, this.qrCode);
 }
 
+// Model for Discord message response
+class DiscordResult {
+  final String result;
+  final String? urlLink;
+  final String? qrCode;
+
+  DiscordResult(this.result, this.urlLink, this.qrCode);
+}
+
 class SocialNetworkManager {
   static final List<SocialNetwork> socialNetworks = [
     SocialNetwork(
@@ -113,12 +122,13 @@ class SocialNetworkManager {
       urlRedirect: "https://www.linkedin.com/feed/",
     ),
     SocialNetwork(
-      logo: Container(),
-      chatIconPath: "assets/discord.png",
+      logo: Logo(Logos.discord),
       name: "Discord",
-      available: false,
-      color: FluffyThemes.dicordColor,
       chatBot: "@discordbot:",
+      urlLogin: "https://discord.com/login",
+      chatIconPath: "assets/discord.png",
+      available: true,
+      color: FluffyThemes.dicordColor,
       mxidPrefix: "@discord_",
     ),
     SocialNetwork(
