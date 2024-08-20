@@ -5,13 +5,16 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_gen/gen_l10n/l10n.dart';
 import 'package:matrix/matrix.dart';
+import 'package:provider/provider.dart';
 import 'package:tawkie/pages/add_bridge/add_bridge_body.dart';
 import 'package:tawkie/pages/add_bridge/service/hostname.dart';
 import 'package:tawkie/pages/add_bridge/service/reg_exp_pattern.dart';
 import 'package:tawkie/pages/add_bridge/show_bottom_sheet.dart';
 import 'package:tawkie/pages/add_bridge/success_message.dart';
 import 'package:tawkie/pages/add_bridge/web_view_connection.dart';
+import 'package:tawkie/services/matomo/tracking_service.dart';
 import 'package:tawkie/utils/bridge_utils.dart';
+import 'package:tawkie/utils/secure_storage.dart';
 import 'package:tawkie/widgets/matrix.dart';
 import 'package:tawkie/widgets/notifier_state.dart';
 import 'package:webview_cookie_manager/webview_cookie_manager.dart';
@@ -49,16 +52,27 @@ class BotController extends State<AddBridge> {
 
   late Client client;
   late String hostname;
+  late TrackingService trackingService;
 
   List<SocialNetwork> socialNetworks = SocialNetworkManager.socialNetworks;
 
   // Map to store StreamSubscriptions for each social network
   final Map<String, StreamSubscription> _pingSubscriptions = {};
 
+  // Indicator for first successful tracking connection
+  bool _isFirstConnectionTracked = false;
+
+  // Set to keep track of social networks that have been tracked
+  final Set<String> _trackedSocialNetworks = {};
+
+  late bool userCreatedIndicator;
+
   @override
   void initState() {
     super.initState();
+    trackingService = Provider.of<TrackingService>(context, listen: false);
     matrixInit();
+    initializeUserCreatedIndicator();
     handleRefresh();
   }
 
@@ -68,6 +82,10 @@ class BotController extends State<AddBridge> {
     _pingSubscriptions.forEach((key, subscription) => subscription.cancel());
     continueProcess = false;
     super.dispose();
+  }
+
+  Future<void> initializeUserCreatedIndicator() async {
+    userCreatedIndicator = await SecureStorageUtil.checkUserCreatedIndicator() == 'true';
   }
 
   /// Initialize Matrix client and extract hostname
@@ -226,6 +244,10 @@ class BotController extends State<AddBridge> {
 
       // Wait for the ping response
       await _processPingResponse(socialNetwork, completer);
+
+      if (!_isFirstConnectionTracked && socialNetwork.connected && userCreatedIndicator) {
+        trackingService.trackRegisterBridgeAddAttempt(socialNetwork.name);
+      }
     } catch (e) {
       Logs().v("Error processing ping response: ${e.toString()}");
       _handleError(socialNetwork, ConnectionError.unknown);
@@ -288,6 +310,16 @@ class BotController extends State<AddBridge> {
     if (isOnline(patterns.onlineMatch, lastEvent!)) {
       Logs().v("You're logged to ${socialNetwork.name}");
       _updateNetworkStatus(socialNetwork, true, false);
+      // Metric bridges used (per bridge)
+      // Track the bridge usage if not already tracked
+      if (!_isFirstConnectionTracked && socialNetwork.connected && userCreatedIndicator) {
+        trackingService.trackConnectionTimes();
+      } else {
+        if (!_trackedSocialNetworks.contains(socialNetwork.name)) {
+          _trackedSocialNetworks.add(socialNetwork.name);
+          trackingService.trackBridgeUsed(socialNetwork.name);
+        }
+      }
       if (!completer.isCompleted) {
         completer.complete();
       }
@@ -365,9 +397,11 @@ class BotController extends State<AddBridge> {
     if (lastMessage != null) {
       showCatchErrorDialog(
           context, "${L10n.of(context)!.errorSendUsProblem} $lastMessage");
+      trackingService.trackBridgeConnectionFailure(socialNetwork.name, lastMessage);
     } else {
       showCatchErrorDialog(context,
           "${L10n.of(context)!.errorConnectionText}.\n\n${L10n.of(context)!.errorSendUsProblem} $errorMessage");
+      trackingService.trackBridgeConnectionFailure(socialNetwork.name, errorMessage);
     }
   }
 
@@ -611,6 +645,8 @@ class BotController extends State<AddBridge> {
           .updateConnectionTitle(L10n.of(context)!.loadingDemandToConnect);
     });
 
+    trackingService.trackBridgeAddAttempt(network.name);
+
     final gotCookies = await cookieManager.getCookies(network.urlRedirect);
 
     if (kDebugMode) {
@@ -752,6 +788,8 @@ class BotController extends State<AddBridge> {
       connectionState
           .updateConnectionTitle(L10n.of(context)!.loadingDemandToConnect);
     });
+
+    trackingService.trackBridgeAddAttempt(whatsAppNetwork.name);
 
     final RegExp successMatch = LoginRegex.whatsAppSuccessMatch;
     final RegExp alreadySuccessMatch = LoginRegex.whatsAppAlreadySuccessMatch;
@@ -923,6 +961,8 @@ class BotController extends State<AddBridge> {
       connectionState
           .updateConnectionTitle(L10n.of(context)!.loadingDemandToConnect);
     });
+
+    trackingService.trackBridgeAddAttempt(network.name);
 
     final gotCookies = await cookieManager.getCookies(network.urlRedirect);
 

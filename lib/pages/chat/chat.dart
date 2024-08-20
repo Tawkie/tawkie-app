@@ -17,6 +17,7 @@ import 'package:future_loading_dialog/future_loading_dialog.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:matrix/matrix.dart';
+import 'package:provider/provider.dart';
 import 'package:record/record.dart';
 import 'package:scroll_to_index/scroll_to_index.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -27,6 +28,7 @@ import 'package:tawkie/pages/chat/chat_view.dart';
 import 'package:tawkie/pages/chat/event_info_dialog.dart';
 import 'package:tawkie/pages/chat/recording_dialog.dart';
 import 'package:tawkie/pages/chat_details/chat_details.dart';
+import 'package:tawkie/services/matomo/tracking_service.dart';
 import 'package:tawkie/utils/account_bundles.dart';
 import 'package:tawkie/utils/error_reporter.dart';
 import 'package:tawkie/utils/localized_exception_extension.dart';
@@ -97,6 +99,8 @@ class ChatPageWithRoom extends StatefulWidget {
 class ChatController extends State<ChatPageWithRoom>
     with WidgetsBindingObserver {
   Room get room => sendingClient.getRoomById(roomId) ?? widget.room;
+
+  late TrackingService trackingService;
 
   late Client sendingClient;
 
@@ -267,6 +271,8 @@ class ChatController extends State<ChatPageWithRoom>
     inputFocus.addListener(_inputFocusListener);
 
     _loadDraft();
+
+    trackingService = Provider.of<TrackingService>(context, listen: false);
     super.initState();
     _displayChatDetailsColumn = ValueNotifier(
       Matrix.of(context).store.getBool(SettingKeys.displayChatDetailsColumn) ??
@@ -480,6 +486,9 @@ class ChatController extends State<ChatPageWithRoom>
       editEventId: editEvent?.eventId,
       parseCommands: parseCommands,
     );
+
+    trackingService.trackMessageSent();
+
     sendController.value = TextEditingValue(
       text: pendingText,
       selection: const TextSelection.collapsed(offset: 0),
@@ -516,6 +525,8 @@ class ChatController extends State<ChatPageWithRoom>
         room: room,
       ),
     );
+
+    trackingService.trackSpecialMessageSent(MessageType.file);
   }
 
   void sendImageFromClipBoard(Uint8List? image) async {
@@ -557,6 +568,8 @@ class ChatController extends State<ChatPageWithRoom>
         room: room,
       ),
     );
+
+    trackingService.trackSpecialMessageSent(MessageType.image);
   }
 
   void openCameraAction() async {
@@ -600,6 +613,8 @@ class ChatController extends State<ChatPageWithRoom>
         room: room,
       ),
     );
+
+    trackingService.trackSpecialMessageSent(MessageType.video);
   }
 
   void voiceMessageAction() async {
@@ -653,6 +668,9 @@ class ChatController extends State<ChatPageWithRoom>
       );
       return null;
     });
+
+    trackingService.trackSpecialMessageSent(MessageType.voice);
+
     setState(() {
       replyEvent = null;
     });
@@ -684,6 +702,8 @@ class ChatController extends State<ChatPageWithRoom>
       context: context,
       builder: (c) => SendLocationDialog(room: room),
     );
+    trackingService.trackSpecialMessageSent(MessageType.location);
+
   }
 
   String _getSelectedEventString() {
@@ -1011,6 +1031,8 @@ class ChatController extends State<ChatPageWithRoom>
           e.content.tryGetMap('m.relates_to')?['key'] == emoji,
     );
 
+    trackingService.trackMessageDoubleTap();
+
     // If the reaction event exists, it will be suppressed, Otherwise it can be added
     if (evt != null) {
       await evt.redactEvent();
@@ -1134,6 +1156,8 @@ class ChatController extends State<ChatPageWithRoom>
       selectedEvents.sort(
         (a, b) => a.originServerTs.compareTo(b.originServerTs),
       );
+
+      trackingService.trackMessageLongPress();
     }
   }
 

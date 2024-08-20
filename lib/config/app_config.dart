@@ -76,6 +76,9 @@ abstract class AppConfig {
   static const String baseUrl = kDebugMode ? stagingUrl : productionUrl;
   static String tawkieSubscriptionIdentifier = 'Tawkie subscription';
 
+  static int requiredOpens = 1; // Number of openings required before showing NPS
+  static int requiredDays = 1;  // Number of days of use required before showing NPS
+
   // URLs for Beta Join
   static const String testflightAppUrl =
       'https://apps.apple.com/us/app/testflight/id899247664';
@@ -132,6 +135,12 @@ abstract class AppConfig {
     }
     if (json['hide_unknown_events'] is bool) {
       hideUnknownEvents = json['hide_unknown_events'];
+    }
+    if (json['required_opens'] is int) {
+      requiredOpens = json['required_opens'];
+    }
+    if (json['required_days'] is int) {
+      requiredDays = json['required_days'];
     }
     if (json['tawkie_subscription_identifier'] is String) {
       tawkieSubscriptionIdentifier = json['tawkie_subscription_identifier'];

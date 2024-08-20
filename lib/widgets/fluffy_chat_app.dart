@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:flutter_gen/gen_l10n/l10n.dart';
 import 'package:go_router/go_router.dart';
+import 'package:matomo_tracker/matomo_tracker.dart';
 import 'package:matrix/matrix.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -37,7 +38,11 @@ class FluffyChatApp extends StatelessWidget {
 
   // Router must be outside of build method so that hot reload does not reset
   // the current path.
-  static final GoRouter router = GoRouter(routes: AppRoutes.routes);
+  static final GoRouter router = GoRouter(
+    routes: AppRoutes.routes,
+    // To get TraceableClientMix and TraceableWidget up and running
+    observers: [matomoObserver],
+  );
 
   @override
   Widget build(BuildContext context) {

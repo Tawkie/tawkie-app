@@ -29,8 +29,10 @@ import 'package:flutter_gen/gen_l10n/l10n.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
 import 'package:matrix/matrix.dart';
+import 'package:provider/provider.dart';
 import 'package:tawkie/config/app_config.dart';
 import 'package:tawkie/config/setting_keys.dart';
+import 'package:tawkie/services/matomo/tracking_service.dart';
 import 'package:tawkie/widgets/matrix.dart';
 import 'package:unifiedpush/unifiedpush.dart';
 import 'package:tawkie/utils/push_helper.dart';
@@ -72,6 +74,10 @@ class BackgroundPush {
     firebase?.setListeners(
       onMessage: (message) {
         Logs().v('[FCM] onMessage', message);
+
+        final trackingService = Provider.of<TrackingService>(matrix!.context, listen: false);
+        trackingService.trackNotificationReceived();
+
         // Workaround to support Sygnal push notifications
         message['devices'] = [
           {'app_id': AppConfig.pushNotificationsAppId, 'pushkey': 'bogus'}
@@ -317,6 +323,10 @@ class BackgroundPush {
       if (roomId == null) {
         return;
       }
+
+      final trackingService = Provider.of<TrackingService>(matrix!.context, listen: false);
+      trackingService.trackNotificationOpen();
+
       await client.roomsLoading;
       await client.accountDataLoading;
       FluffyChatApp.router.go(
