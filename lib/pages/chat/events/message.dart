@@ -1,17 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-
 import 'package:flutter_gen/gen_l10n/l10n.dart';
 import 'package:matrix/matrix.dart';
 import 'package:swipe_to_action/swipe_to_action.dart';
 import 'package:tawkie/config/app_config.dart';
-
 import 'package:tawkie/config/themes.dart';
 import 'package:tawkie/pages/chat/events/message_reactions.dart';
 import 'package:tawkie/utils/date_time_extension.dart';
 import 'package:tawkie/utils/string_color.dart';
 import 'package:tawkie/widgets/avatar.dart';
 import 'package:tawkie/widgets/matrix.dart';
+
+import 'message_group_content.dart';
 import 'message_content.dart';
 import 'reply_content.dart';
 import 'state_message.dart';
@@ -142,6 +142,75 @@ class Message extends StatelessWidget {
 
     final resetAnimateIn = this.resetAnimateIn;
     var animateIn = this.animateIn;
+
+    // Message grouping section
+    // (if messages have the same originServerTs)
+    bool hasSameTimestamp(Event? event, Event? nextEvent) {
+      if (event == null || nextEvent == null) {
+        return false;
+      }
+      return event.originServerTs == nextEvent.originServerTs;
+    }
+
+    bool isMediaEvent(Event event) {
+      return event.messageType == MessageTypes.Image ||
+          event.messageType == MessageTypes.Video ||
+          event.messageType == MessageTypes.Sticker;
+    }
+
+    bool isTextEvent(Event event) {
+      return event.messageType == MessageTypes.Text || event.messageType == MessageTypes.Notice;
+    }
+
+    bool containsMediaAndText(List<Event> events) {
+      bool hasMedia = events.any((event) => isMediaEvent(event));
+      bool hasText = events.any((event) => isTextEvent(event));
+      return hasMedia && hasText;
+    }
+
+    List<Event> groupEvents() {
+      List<Event> possibleGroup = [event, nextEvent].where((e) => e != null).cast<Event>().toList();
+      if (containsMediaAndText(possibleGroup)) {
+        return possibleGroup;
+      }
+
+      return [];
+    }
+
+    bool canGroupEvents() {
+      return hasSameTimestamp(event, nextEvent) && containsMediaAndText([event, nextEvent!]);
+    }
+
+
+    bool hasSamePreviousTimestamp(Event? currentEvent, Event? previousEvent) {
+      if (currentEvent == null || previousEvent == null) {
+        return false;
+      }
+      return currentEvent.originServerTs == previousEvent.originServerTs;
+    }
+
+    bool isDuplicateEvent() {
+      return hasSamePreviousTimestamp(event, previousEvent);
+    }
+
+    final isHidden = isDuplicateEvent();
+
+    if (isHidden) {
+      return const SizedBox.shrink();
+    }
+
+    final List<Event> groupedEvents = canGroupEvents() ? groupEvents() : [];
+
+    Event getEventForReactions(List<Event> groupedEvents) {
+      for (var event in groupedEvents) {
+        if (isMediaEvent(event)) {
+          return event;
+        }
+      }
+      return groupedEvents.isNotEmpty ? groupedEvents.last : event;
+    }
+
+    final Event eventForReactions = getEventForReactions(groupedEvents);
 
     final row = StatefulBuilder(
       builder: (context, setState) {
@@ -374,12 +443,19 @@ class Message extends StatelessWidget {
                                                   );
                                                 },
                                               ),
-                                            MessageContent(
-                                              displayEvent,
-                                              textColor: textColor,
-                                              onInfoTab: onInfoTab,
-                                              borderRadius: borderRadius,
-                                            ),
+                                            groupedEvents.isNotEmpty
+                                                ? MessageGroupContent(
+                                                    groupedEvents,
+                                                    textColor: textColor,
+                                                    onInfoTab: onInfoTab,
+                                                    borderRadius: borderRadius,
+                                                  )
+                                                : MessageContent(
+                                                    displayEvent,
+                                                    textColor: textColor,
+                                                    onInfoTab: onInfoTab,
+                                                    borderRadius: borderRadius,
+                                                  ),
                                             if (event.hasAggregatedEvents(
                                               timeline,
                                               RelationshipTypes.edit,
@@ -470,7 +546,7 @@ class Message extends StatelessWidget {
                 left: (ownMessage ? 0 : Avatar.defaultSize) + 12.0,
                 right: 12.0,
               ),
-              child: MessageReactions(event, timeline),
+              child: MessageReactions(groupedEvents.isNotEmpty ?eventForReactions :event, timeline),
             ),
           if (displayReadMarker)
             Row(

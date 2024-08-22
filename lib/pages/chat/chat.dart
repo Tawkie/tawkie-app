@@ -997,26 +997,45 @@ class ChatController extends State<ChatPageWithRoom>
 
   late Iterable<Event> _allReactionEvents;
 
+  Event? findMediaEventWithSameTimestamp(Event event) {
+    final mediaEvent = timeline?.events.firstWhereOrNull((e) =>
+    e.originServerTs == event.originServerTs &&
+        e != event &&
+        (e.messageType == MessageTypes.Image || e.messageType == MessageTypes.Video));
+
+    return mediaEvent;
+  }
+
   // Message liking function (double-click)
   void handleMessageLike(Event event) async {
     const String emoji = Emojis.thumbsUp;
 
-    final allReactionEvents =
-        event.aggregatedEvents(timeline!, RelationshipTypes.reaction);
+    // Find a media event with the same timestamp if available
+    final mediaEvent = findMediaEventWithSameTimestamp(event);
+    final targetEvent = mediaEvent ?? event;
 
-    // Search for the specific reaction event of the current user.
+    final allReactionEvents =
+    targetEvent.aggregatedEvents(timeline!, RelationshipTypes.reaction);
+
+    // Search for the specific reaction event of the current user
     final evt = allReactionEvents.firstWhereOrNull(
-      (e) =>
-          e.senderId == e.room.client.userID &&
+          (e) =>
+      e.senderId == e.room.client.userID &&
           e.content.tryGetMap('m.relates_to')?['key'] == emoji,
     );
 
-    // If the reaction event exists, it will be suppressed, Otherwise it can be added
+    // If the reaction event exists, it will be deleted, otherwise it will be added.
     if (evt != null) {
+      if (kDebugMode) {
+        print("Removing reaction");
+      }
       await evt.redactEvent();
     } else {
+      if (kDebugMode) {
+        print("Adding reaction");
+      }
       await room.sendReaction(
-        event.eventId,
+        targetEvent.eventId,
         emoji,
       );
     }
