@@ -98,6 +98,9 @@ abstract class AppConfig {
       kDebugMode ? serverStagingUrl : serverProductionUrl;
   static const String roomAlias = '#$betaAlias$server';
 
+  // Bot identifier for opening tickets
+  static const String ticketsBotId = '@honoroit:alpha.tawkie.fr';
+
   static void loadFromJson(Map<String, dynamic> json) {
     if (json['chat_color'] != null) {
       try {

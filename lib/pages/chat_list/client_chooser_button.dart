@@ -93,6 +93,16 @@ class ClientChooserButton extends StatelessWidget {
           ),
         ),
       PopupMenuItem(
+        value: SettingsAction.tickets,
+        child: Row(
+          children: [
+            const Icon(Icons.bug_report),
+            const SizedBox(width: 18),
+            Text(L10n.of(context)!.ticketsTitlePage),
+          ],
+        ),
+      ),
+      PopupMenuItem(
         value: SettingsAction.settings,
         child: Row(
           children: [
@@ -302,6 +312,9 @@ class ClientChooserButton extends StatelessWidget {
         case SettingsAction.joinBeta:
           context.go('/rooms/settings/joinBeta');
           break;
+        case SettingsAction.tickets:
+          context.go('/rooms/settings/tickets');
+          break;
         // Redirect to bot social network connection page
         case SettingsAction.addBridgeBot:
           context.go('/rooms/settings/addbridgebot');
@@ -392,4 +405,5 @@ enum SettingsAction {
   settings,
   archive,
   joinBeta,
+  tickets,
 }
