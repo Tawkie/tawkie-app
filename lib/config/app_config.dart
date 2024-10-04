@@ -31,6 +31,7 @@ abstract class AppConfig {
   static String get webBaseUrl => _webBaseUrl;
   static const String sourceCodeUrl = 'https://github.com/Tawkie/tawkie-app';
   static const String supportUrl = 'https://www.tawkie.fr/faq/';
+  static const String githubReleasesUrl = 'https://api.github.com/repos/Tawkie/tawkie-app/releases/latest';
   static final Uri newIssueUrl = Uri(
     scheme: 'https',
     host: 'github.com',

@@ -17,7 +17,9 @@ import 'package:tawkie/config/setting_keys.dart';
 import 'package:tawkie/pages/add_bridge/model/social_network.dart';
 import 'package:tawkie/pages/bootstrap/bootstrap_dialog.dart';
 import 'package:tawkie/pages/chat/send_file_dialog.dart';
+import 'package:tawkie/services/update_service.dart';
 import 'package:tawkie/utils/account_bundles.dart';
+import 'package:tawkie/utils/app_info.dart';
 import 'package:tawkie/utils/matrix_sdk_extensions/matrix_file_extension.dart';
 import 'package:tawkie/utils/show_update_snackbar.dart';
 import 'package:tawkie/utils/url_launcher.dart';
@@ -36,6 +38,7 @@ import 'package:tawkie/utils/platform_infos.dart';
 
 import 'package:tawkie/utils/tor_stub.dart'
     if (dart.library.html) 'package:tor_detector_web/tor_detector_web.dart';
+import 'package:updat/updat.dart';
 
 enum SelectMode {
   normal,
@@ -622,6 +625,43 @@ class ChatListController extends State<ChatList>
   @override
   void initState() {
     super.initState();
+
+    // Call UpdatWidget in initState to run when page is opened
+    if (PlatformInfos.isWindows) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        final String currentVersion = await getAppVersion();
+        final latestVersion = await getLatestVersionFromGitHub();
+        final binaryUrl = await getWindowsExeDownloadUrl();
+
+        // If the version or URL of the exe file is unavailable, do not display anything.
+        if (latestVersion == null || binaryUrl == null) {
+          if (kDebugMode) {
+            print("Update information unavailable. No update displayed.");
+          }
+          return;
+        }
+
+        // If all goes well, the update widget is displayed
+        showDialog(
+          context: context,
+          barrierDismissible: true,
+          builder: (context) {
+            return AlertDialog(
+              content:
+              UpdatWidget(
+                currentVersion: currentVersion,
+                getLatestVersion: () => Future.value(latestVersion),
+                getBinaryUrl: (latestVersion) async {
+                  return binaryUrl;
+                },
+                appName: AppConfig.applicationName,
+                openOnDownload: true,
+              ),
+            );
+          },
+        );
+      });
+    }
 
     _initReceiveSharingIntent();
     scrollController.addListener(_onScroll);
