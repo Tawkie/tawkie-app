@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_gen/gen_l10n/l10n.dart';
 import 'package:go_router/go_router.dart';
 import 'package:tawkie/pages/welcome_slides/datas/sides_datas.dart';
-import 'package:flutter_gen/gen_l10n/l10n.dart';
 
 class WelcomeSlidePage extends StatefulWidget {
   const WelcomeSlidePage({super.key});
@@ -20,6 +20,17 @@ class _WelcomeSlidePageState extends State<WelcomeSlidePage> {
     _pageController = PageController();
   }
 
+  void next() {
+    if (currentIndex == slidesData.length - 1) {
+      GoRouter.of(context).go('/home');
+    } else {
+      _pageController.nextPage(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.ease,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -34,16 +45,7 @@ class _WelcomeSlidePageState extends State<WelcomeSlidePage> {
                 gifAsset: slide.gifAsset,
                 textKey: slide.textKey,
                 isLastSlide: index == slidesData.length - 1,
-                onNext: () {
-                  if (index == slidesData.length - 1) {
-                    GoRouter.of(context).go('/home');
-                  } else {
-                    _pageController.nextPage(
-                      duration: const Duration(milliseconds: 300),
-                      curve: Curves.ease,
-                    );
-                  }
-                },
+                onNext: next,
               );
             },
             onPageChanged: (index) {
@@ -83,15 +85,25 @@ class _WelcomeSlidePageState extends State<WelcomeSlidePage> {
           Positioned(
             right: 50,
             top: 50,
-            child: Center(
-              child: ElevatedButton(
-                onPressed: () {
-                  GoRouter.of(context).go('/home');
-                },
-                child: Text(currentIndex == slidesData.length - 1
-                    ? L10n.of(context)!.next
-                    : L10n.of(context)!.skip),
+            child: ElevatedButton(
+              onPressed: () {
+                GoRouter.of(context).go('/home');
+              },
+              child: Text(currentIndex == slidesData.length - 1
+                  ? L10n.of(context)!.next
+                  : L10n.of(context)!.skip),
+            ),
+          ),
+          Positioned(
+            bottom: 20,
+            left: 20,
+            right: 20,
+            child: ElevatedButton(
+              onPressed: next,
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 50),
               ),
+              child: Text(L10n.of(context)!.next),
             ),
           ),
         ],
@@ -138,7 +150,7 @@ class SlideItem extends StatelessWidget {
                   child: CircularProgressIndicator(
                     value: loadingProgress.expectedTotalBytes != null
                         ? loadingProgress.cumulativeBytesLoaded /
-                            loadingProgress.expectedTotalBytes!
+                        loadingProgress.expectedTotalBytes!
                         : null,
                   ),
                 );
@@ -152,8 +164,8 @@ class SlideItem extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.all(8.0),
           child: Text(
-            textKey(
-                context), // Call function to obtain resolved localization key (for translations)
+            textKey(context),
+            // Call function to obtain resolved localization key (for translations)
             style: const TextStyle(fontSize: 20),
             textAlign: TextAlign.center,
           ),
