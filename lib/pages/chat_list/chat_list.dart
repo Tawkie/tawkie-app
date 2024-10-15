@@ -19,6 +19,7 @@ import 'package:tawkie/pages/bootstrap/bootstrap_dialog.dart';
 import 'package:tawkie/pages/chat/send_file_dialog.dart';
 import 'package:tawkie/utils/account_bundles.dart';
 import 'package:tawkie/utils/matrix_sdk_extensions/matrix_file_extension.dart';
+import 'package:tawkie/utils/room_utils.dart';
 import 'package:tawkie/utils/show_update_snackbar.dart';
 import 'package:tawkie/utils/url_launcher.dart';
 import 'package:tawkie/utils/voip/callkeep_manager.dart';
@@ -109,6 +110,8 @@ class ChatListController extends State<ChatList>
 
   String? _activeSpaceId;
   String? get activeSpaceId => _activeSpaceId;
+
+  List<Room> _filteredRooms = [];
 
   Set<String> loadingRooms = Set<String>();
 
