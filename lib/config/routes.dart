@@ -46,17 +46,27 @@ abstract class AppRoutes {
   ) async {
     final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
     final sessionToken = await _secureStorage.read(key: 'sessionToken');
-
     final bool isLoggedKratos =
         sessionToken is String && sessionToken.isNotEmpty;
     final bool isLoggedMatrix = Matrix.of(context).client.isLogged();
-    final bool preAuth = state.fullPath!.startsWith('/home');
+    final String currentPath = state.uri.path;
+
+    final bool isAuthRoute = currentPath.startsWith('/home/');
 
     if (isLoggedKratos && isLoggedMatrix) {
       return '/rooms';
-    } else if (isLoggedKratos && !isLoggedMatrix && !preAuth) {
+    }
+
+    // Do not redirect if the user is on an authentication route
+    if (isAuthRoute) {
+      return null;
+    }
+
+    if (isLoggedKratos && !isLoggedMatrix) {
       return '/home/login';
-    } else if (!isLoggedMatrix && !preAuth) {
+    }
+
+    if (!isLoggedMatrix && currentPath != '/home/welcome') {
       return '/home/welcome';
     }
 

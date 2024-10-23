@@ -86,7 +86,7 @@ class _WelcomeSlidePageState extends State<WelcomeSlidePage> {
             child: Center(
               child: ElevatedButton(
                 onPressed: () {
-                  GoRouter.of(context).go('/home');
+                  GoRouter.of(context).go('/home/register');
                 },
                 child: Text(currentIndex == slidesData.length - 1
                     ? L10n.of(context)!.next
