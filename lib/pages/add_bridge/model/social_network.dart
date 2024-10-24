@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:icons_plus/icons_plus.dart';
 import 'package:tawkie/config/themes.dart';
+import 'package:tawkie/utils/platform_infos.dart';
 
 class SocialNetwork {
   final Widget logo; // The path to social media image
@@ -128,6 +129,9 @@ class SocialNetworkManager {
       chatBot: "@whatsappbot:",
       displayNameSuffix: "(WhatsApp)",
       mxidPrefix: "@whatsapp_",
+      supportsBridgev2Apis: true,
+      apiPath: "matrix-mautrix-whatsapp",
+      flowId: PlatformInfos.isMobile ? "phone" : "qr",
     ),
     SocialNetwork(
       logo: Logo(Logos.linkedin),

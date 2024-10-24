@@ -7,22 +7,25 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_gen/gen_l10n/l10n.dart';
 import 'package:matrix/matrix.dart';
+import 'package:provider/provider.dart';
 import 'package:tawkie/config/app_config.dart';
 import 'package:tawkie/pages/add_bridge/add_bridge_body.dart';
+import 'package:tawkie/pages/add_bridge/qr_code_connect.dart';
 import 'package:tawkie/pages/add_bridge/service/hostname.dart';
 import 'package:tawkie/pages/add_bridge/service/reg_exp_pattern.dart';
 import 'package:tawkie/pages/add_bridge/show_bottom_sheet.dart';
 import 'package:tawkie/pages/add_bridge/success_message.dart';
 import 'package:tawkie/pages/add_bridge/web_view_connection.dart';
 import 'package:tawkie/utils/bridge_utils.dart';
+import 'package:tawkie/utils/platform_infos.dart';
 import 'package:tawkie/widgets/matrix.dart';
 import 'package:tawkie/widgets/notifier_state.dart';
 import 'package:webview_cookie_manager/webview_cookie_manager.dart';
 
 import 'bot_chat_list.dart';
-import 'connection_bridge_dialog.dart';
 import 'delete_conversation_dialog.dart';
 import 'error_message_dialog.dart';
+import 'login_form.dart';
 import 'model/social_network.dart';
 
 enum ConnectionStatus {
@@ -788,9 +791,12 @@ class BotController extends State<AddBridge> {
   /// Handle connection to a social network
   Future<void> processSocialNetworkAuthentication(
       BuildContext context, SocialNetwork network) async {
+    final connectionState =
+    Provider.of<ConnectionStateModel>(context, listen: false);
+
     switch (network.name) {
       case "WhatsApp":
-        await connectToWhatsApp(context, network, this);
+        await startBridgeLogin(context, connectionState, network);
         break;
       case "Instagram":
       case "Facebook Messenger":
@@ -832,9 +838,223 @@ class BotController extends State<AddBridge> {
   // 📌 ************************** Messenger & Instagram **************************
   // 📌 ***********************************************************************
 
+  Future<void> handleStepResponse(Response response, SocialNetwork network, String loginId) async {
+    if (response.statusCode == 200) {
+      final stepData = response.data;
+
+      if (stepData['type'] == 'complete') {
+        setState(() => network.updateConnectionResult(true));
+        if (kDebugMode) print("Login successful for ${network.name}");
+      } else if (stepData['type'] == 'display_and_wait' && stepData['display_and_wait']?['type'] == 'code') {
+        final pairingCode = stepData['display_and_wait']['data'];
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => QRCodeConnectPage(
+              qrCode: null,
+              code: pairingCode,
+              stepData: stepData,
+              botConnection: this,
+              socialNetwork: network,
+            ),
+          ),
+        );
+
+      } else {
+        network.setError(true);
+        _handleError(network, ConnectionError.unknown, 'Unexpected response type: ${stepData['type']}');
+      }
+    } else {
+      network.setError(true);
+      _handleError(network, ConnectionError.unknown, 'Error submitting step: ${response.statusCode}');
+    }
+  }
+
+  Future<void> loginWithCookies(SocialNetwork network, dynamic startData) async {
+    final userId = client.userID;
+    final loginId = startData['login_id'];
+    final stepType = startData['type'];
+    final stepId = startData['step_id'];
+    final cookieManager = WebviewCookieManager();
+
+    if (stepType == 'user_input' || stepType == 'cookies') {
+      // Retrieve cookies
+      final gotCookies = await cookieManager.getCookies(network.urlRedirect);
+      final formattedCookieString = formatCookiesToJsonApi(gotCookies);
+
+      // Submit cookies to the login process step
+      final stepUrl = '/${network.apiPath}/_matrix/provision/v3/login/step/$loginId/$stepId/cookies?user_id=$userId';
+
+      final stepResponse = await dio.post(stepUrl, data: formattedCookieString);
+
+      await handleStepResponse(stepResponse, network, loginId);
+    } else {
+      network.setError(true);
+      _handleError(network, ConnectionError.unknown, 'Unexpected step type: $stepType');
+    }
+  }
+
+  Future<void> loginWithQRCode(SocialNetwork network, dynamic startData) async {
+    final data = startData['display_and_wait']['data'];
+    final stepType = startData['type'];
+
+    if (stepType == 'display_and_wait') {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => QRCodeConnectPage(
+            qrCode: data,
+            code: null,
+            stepData: startData,
+            botConnection: this,
+            socialNetwork: network,
+          ),
+        ),
+      );
+
+    } else {
+      network.setError(true);
+      _handleError(network, ConnectionError.unknown, 'Unexpected step type: $stepType');
+    }
+  }
+
+  Future<void> loginWithPhone(SocialNetwork network, dynamic startData) async {
+    final userId = client.userID;
+    final loginId = startData['login_id'];
+    final stepType = startData['type'];
+    final stepId = startData['step_id'];
+    final phoneNumber = await showPhoneNumberDialog(context, network);
+
+    if (stepType == 'user_input') {
+      final stepUrl = '/${network.apiPath}/_matrix/provision/v3/login/step/$loginId/$stepId/user_input?user_id=$userId';
+
+      final stepResponse = await dio.post(
+        stepUrl,
+        data: jsonEncode({
+          "phone_number": phoneNumber,
+        }),
+      );
+
+      await handleStepResponse(stepResponse, network, loginId);
+
+    } else {
+      network.setError(true);
+      _handleError(network, ConnectionError.unknown, 'Unexpected step type: $stepType');
+    }
+  }
+
+  Future<String?> showPhoneNumberDialog(BuildContext context, SocialNetwork network) async {
+    final TextEditingController controller = TextEditingController();
+    final GlobalKey<FormState> formKey = GlobalKey<FormState>();
+    final Completer<bool> completer = Completer<bool>();
+
+    return showDialog<String?>(
+      context: context,
+      builder: (BuildContext context) {
+        return Center(
+          child: SingleChildScrollView(
+            child: AlertDialog(
+              title: Text(
+                "${L10n.of(context)!.connectYourSocialAccount} ${network.name}",
+                style: const TextStyle(
+                  fontSize: 20.0,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              content: WhatsAppLoginForm(
+                formKey: formKey,
+                controller: controller,
+                completerCallback: completer.complete,
+              ),
+              actions: <Widget>[
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    completer.complete(false);
+                  },
+                  child: Text(L10n.of(context)!.cancel),
+                ),
+                TextButton(
+                  onPressed: () async {
+                    if (controller.text.isNotEmpty) {
+                      Navigator.of(context).pop(controller.text);
+                    }
+                  },
+                  child: Text(
+                    L10n.of(context)!.login,
+                    style: const TextStyle(
+                      fontSize: 20.0,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> checkLoginStatus(SocialNetwork network, dynamic stepData) async {
+    final userId = client.userID;
+    final loginId = stepData['login_id'];
+    final stepId = stepData['step_id'];
+    final checkStatusUrl = '/${network.apiPath}/_matrix/provision/v3/login/step/$loginId/$stepId/display_and_wait?user_id=$userId';
+
+    try {
+      final statusResponse = await dio.post(checkStatusUrl);
+
+      if (statusResponse.statusCode == 200) {
+        final statusData = statusResponse.data;
+
+        if (statusData['type'] == 'complete') {
+          setState(() => network.updateConnectionResult(true));
+          if (kDebugMode) {
+            print("Login successful for ${network.name}");
+          }
+          Navigator.of(context).pop();
+        }
+      } else {
+        _handleError(network, ConnectionError.unknown, 'Error checking login status: ${statusResponse.statusCode}');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print("error: $e");
+      }
+
+      if (e is DioException && e.response?.statusCode == 500){
+        // Show timeout dialog
+        await showDialog(
+          context: context,
+          builder: (BuildContext context) {
+            return AlertDialog(
+              title: Text(
+                L10n.of(context)!.errElapsedTime,
+              ),
+              content: Text(
+                L10n.of(context)!.errExpiredSession,
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    Navigator.of(context).pop();
+                  },
+                  child: Text(
+                    L10n.of(context)!.ok,
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      }
+    }
+  }
+
   Future<void> startBridgeLogin(
       BuildContext context,
-      WebviewCookieManager cookieManager,
       ConnectionStateModel connectionState,
       SocialNetwork network,
       ) async {
@@ -844,17 +1064,13 @@ class BotController extends State<AddBridge> {
     // Step 1: Start the login process
     final loginStartUrl = '/${network.apiPath}/_matrix/provision/v3/login/start/$flowID?user_id=$userId';
 
-    print("loginStartUrl: $loginStartUrl");
-
     try {
       // Initiate the login process
       final startResponse = await dio.post(loginStartUrl);
 
       if (startResponse.statusCode == 200) {
         final startData = startResponse.data;
-        final loginId = startData['login_id'];
         final stepType = startData['type'];
-        final stepId = startData['step_id'];
 
         // Update state if there's a display message
         if (stepType == 'display_and_wait') {
@@ -863,33 +1079,27 @@ class BotController extends State<AddBridge> {
           );
         }
 
-        // Step 2: If the next step is user input or cookies, prepare to submit cookies
-        if (stepType == 'user_input' || stepType == 'cookies') {
-          // Retrieve cookies
-          final gotCookies = await cookieManager.getCookies(network.urlRedirect);
-          final formattedCookieString = formatCookiesToJsonApi(gotCookies);
-
-          // Submit cookies to the login process step
-          final stepUrl = '/${network.apiPath}/_matrix/provision/v3/login/step/$loginId/$stepId/cookies?user_id=$userId';
-
-          final stepResponse = await dio.post(stepUrl, data: formattedCookieString);
-
-          if (stepResponse.statusCode == 200) {
-            final stepData = stepResponse.data;
-            if (stepData['type'] == 'complete') {
-              setState(() => network.updateConnectionResult(true));
-              if (kDebugMode) print('Login successful for ${network.name}');
-            } else {
-              network.setError(true);
-              _handleError(network, ConnectionError.unknown, 'Unexpected response type: ${stepData['type']}');
+        // Step 2: For differents methods
+        switch (network.name) {
+          case "WhatsApp":
+            if(PlatformInfos.isMobile){
+              await loginWithPhone(network, startData);
+            }else{
+              await loginWithQRCode(network, startData);
             }
-          } else {
+            break;
+
+          case "Facebook Messenger":
+          case "Instagram":
+            await loginWithCookies(network, startData);
+            break;
+
+          default:
             network.setError(true);
-            _handleError(network, ConnectionError.unknown, 'Error submitting step: ${stepResponse.statusCode}');
-          }
-        } else {
-          network.setError(true);
-          _handleError(network, ConnectionError.unknown, 'Unexpected step type: $stepType');
+            if (kDebugMode) {
+              print('Unsupported network for login: ${network.name}');
+            }
+            break;
         }
       } else {
         network.setError(true);
@@ -1058,180 +1268,6 @@ class BotController extends State<AddBridge> {
       }
     }
     return lastMessage;
-  }
-
-  // 📌 ***********************************************************************
-  // 📌 ************************** WhatsApp **************************
-  // 📌 ***********************************************************************
-
-  /// Create a bridge for WhatsApp
-  Future<WhatsAppResult> createBridgeWhatsApp(BuildContext context,
-      String phoneNumber, ConnectionStateModel connectionState) async {
-    final SocialNetwork? whatsAppNetwork =
-        SocialNetworkManager.fromName("WhatsApp");
-    if (whatsAppNetwork == null) {
-      throw Exception("WhatsApp network not found");
-    }
-
-    final String botUserId = '${whatsAppNetwork.chatBot}$hostname';
-
-    Future.microtask(() {
-      connectionState
-          .updateConnectionTitle(L10n.of(context)!.loadingDemandToConnect);
-    });
-
-    final RegExp successMatch = LoginRegex.whatsAppSuccessMatch;
-    final RegExp alreadySuccessMatch = LoginRegex.whatsAppAlreadySuccessMatch;
-    final RegExp meansCodeMatch = LoginRegex.whatsAppMeansCodeMatch;
-    final RegExp timeOutMatch = LoginRegex.whatsAppTimeoutMatch;
-
-    final String? directChat = await _getOrCreateDirectChat(botUserId);
-    if (directChat == null) {
-      return _handleErrorAndReturnResult(whatsAppNetwork);
-    }
-
-    final Room? roomBot = client.getRoomById(directChat!);
-    if (roomBot == null) {
-      return _handleErrorAndReturnResult(whatsAppNetwork);
-    }
-
-    await Future.delayed(const Duration(seconds: 1));
-
-    Future.microtask(() {
-      connectionState
-          .updateConnectionTitle(L10n.of(context)!.loadingVerificationNumber);
-    });
-
-    await roomBot.sendTextEvent("login $phoneNumber");
-    await Future.delayed(const Duration(seconds: 5));
-
-    return await _fetchWhatsAppLoginResult(roomBot, successMatch,
-        alreadySuccessMatch, meansCodeMatch, timeOutMatch);
-  }
-
-  /// Handle error and return result for WhatsApp
-  WhatsAppResult _handleErrorAndReturnResult(SocialNetwork network) {
-    _handleError(network);
-    return WhatsAppResult("error", "", "");
-  }
-
-  /// Fetch the login result for WhatsApp
-  Future<WhatsAppResult> _fetchWhatsAppLoginResult(
-      Room roomBot,
-      RegExp successMatch,
-      RegExp alreadySuccessMatch,
-      RegExp meansCodeMatch,
-      RegExp timeOutMatch) async {
-    while (true) {
-      final GetRoomEventsResponse response =
-          await client.getRoomEvents(roomBot.id, Direction.b, limit: 2);
-      final List<MatrixEvent> latestMessages = response.chunk ?? [];
-
-      if (latestMessages.isNotEmpty) {
-        final String oldestMessage =
-            latestMessages.last.content['body'].toString() ?? '';
-        final String latestMessage =
-            latestMessages.first.content['body'].toString() ?? '';
-
-        if (successMatch.hasMatch(latestMessage) ||
-            alreadySuccessMatch.hasMatch(latestMessage)) {
-          Logs().v("You're logged to WhatsApp");
-          return WhatsAppResult("success", "", "");
-        } else if (meansCodeMatch.hasMatch(oldestMessage)) {
-          Logs().v("scanTheCode");
-
-          final RegExp regExp = RegExp(r"\*\*(.*?)\*\*");
-          final Match? match = regExp.firstMatch(oldestMessage);
-          final String? code = match?.group(1);
-
-          return WhatsAppResult("scanTheCode", code, latestMessage);
-        } else if (timeOutMatch.hasMatch(latestMessage)) {
-          Logs().v("Login timed out");
-          return WhatsAppResult("loginTimedOut", "", "");
-        }
-      }
-
-      await Future.delayed(const Duration(seconds: 2));
-    }
-  }
-
-  /// Checks and processes the last message received for WhatsApp
-  Future<String> fetchDataWhatsApp() async {
-    final SocialNetwork? whatsAppNetwork =
-        SocialNetworkManager.fromName("WhatsApp");
-    if (whatsAppNetwork == null) {
-      throw Exception("WhatsApp network not found");
-    }
-
-    final String botUserId = '${whatsAppNetwork.chatBot}$hostname';
-
-    final RegExp successMatch = LoginRegex.whatsAppSuccessMatch;
-    final RegExp timeOutMatch = LoginRegex.whatsAppTimeoutMatch;
-
-    String? directChat = client.getDirectChatFromUserId(botUserId);
-    directChat ??= await client.startDirectChat(botUserId);
-
-    final Completer<String> completer = Completer<String>();
-
-    StreamSubscription? subscription;
-    subscription = client.onEvent.stream.listen((eventUpdate) {
-      if (eventUpdate.content['sender']?.contains(whatsAppNetwork.chatBot)) {
-        _onWhatsAppMessage(
-          directChat!,
-          botUserId,
-          successMatch,
-          timeOutMatch,
-          whatsAppNetwork,
-          completer,
-        );
-      }
-    });
-
-    try {
-      final result = await completer.future;
-      return result;
-    } finally {
-      await subscription
-          .cancel(); // Cancel the subscription to avoid memory leaks
-    }
-  }
-
-  /// Check last received message for WhatsApp
-  void _onWhatsAppMessage(
-      String directChat,
-      String botUserId,
-      RegExp successMatch,
-      RegExp timeOutMatch,
-      SocialNetwork whatsAppNetwork,
-      Completer<String> completer) {
-    final Room? roomBot = client.getRoomById(directChat);
-    if (roomBot == null) {
-      if (!completer.isCompleted) {
-        completer.completeError(ConnectionError.roomNotFound);
-      }
-      return;
-    }
-
-    final lastEvent = roomBot.lastEvent;
-    final lastMessage = lastEvent?.text;
-    final senderId = lastEvent?.senderId;
-
-    if (lastEvent != null && senderId == botUserId) {
-      if (successMatch.hasMatch(lastMessage!)) {
-        Logs().v("You're logged to WhatsApp");
-
-        setState(() => whatsAppNetwork.connected = true);
-        if (!completer.isCompleted) {
-          completer.complete("success");
-        }
-      } else if (timeOutMatch.hasMatch(lastMessage)) {
-        Logs().v("Login timed out");
-
-        if (!completer.isCompleted) {
-          completer.complete("loginTimedOut");
-        }
-      }
-    }
   }
 
   // 📌 ***********************************************************************

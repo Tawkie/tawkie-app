@@ -127,8 +127,7 @@ class _WebViewConnectionState extends State<WebViewConnection> {
                     // Mark the Facebook bridge as created
                     _facebookBridgeCreated = true;
 
-                    await widget.controller.startBridgeLogin(context,
-                        cookieManager, connectionState, widget.network);
+                    await widget.controller.startBridgeLogin(context, connectionState, widget.network);
                   },
                 );
               } else {
