@@ -287,7 +287,64 @@ class ChatListController extends State<ChatList>
       .rooms
       .where(getRoomFilterByActiveFilter(activeFilter))
       .where(hideBotsRoomFilter)
-      .toList();
+      .toList()
+    ..sort(sortRoomsBy);
+
+  RoomSorter get sortRoomsBy => (a, b) {
+    bool isValidMessageType(String? msgtype) {
+      return msgtype == 'm.text' || msgtype == 'm.image' ||
+          msgtype == 'm.video' || msgtype == 'm.file';
+    }
+
+    bool isBotSender(String senderId) {
+      return senderId.startsWith('@instagram2bot:') ||
+          senderId.startsWith('@messenger2Bot:');
+    }
+
+    // Helper function to get the timestamp of a relevant message from the last 5 events
+    DateTime getRelevantMessageTime(Room room) {
+      // Check the last event first
+      final lastEvent = room.lastEvent;
+      if (lastEvent != null && lastEvent.type == 'm.room.message') {
+        String msgtype = lastEvent.content['msgtype'] as String? ?? '';
+        String senderId = lastEvent.senderId;
+
+        if (isValidMessageType(msgtype) && !isBotSender(senderId)) {
+          return lastEvent.originServerTs;
+        }
+      }
+
+      // If lastEvent is not relevant, check up to 5 most recent events from `ephemerals`
+      final events = room.ephemerals.values.toList().reversed;
+      int maxEventsToCheck = 5;
+      int checkedEvents = 0;
+
+      for (final event in events) {
+        if (checkedEvents >= maxEventsToCheck) break;
+        if (event.type == 'm.room.message') {
+          String msgtype = event.content['msgtype'] as String? ?? '';
+          String senderId = event.content['sender'] as String? ?? '';
+          int? timestamp = event.content['origin_server_ts'] as int?;
+
+          if (timestamp != null && isValidMessageType(msgtype) && !isBotSender(senderId)) {
+            return DateTime.fromMillisecondsSinceEpoch(timestamp);
+          }
+        }
+        checkedEvents++;
+      }
+
+      // If no relevant message is found, return a default date
+      return DateTime(0);
+    }
+
+    // Use the helper function to get the timestamps for sorting
+    DateTime timeA = getRelevantMessageTime(a);
+    DateTime timeB = getRelevantMessageTime(b);
+
+    // Room comparison based on the timestamp of the last relevant message
+    return timeB.compareTo(timeA);
+  };
+
 
   Future<bool> isGroupWithOnlyBotAndUser(Room room) async {
     final client = Matrix.of(context).client;
