@@ -33,8 +33,13 @@ SocialNetwork identifySocialNetwork(Room room) {
 
 Future<RoomDisplayInfo> loadRoomInfo(BuildContext context, Room room) async {
   final SocialNetwork socialNetwork = identifySocialNetwork(room);
-  final String displayname =
-      room.getLocalizedDisplayname(MatrixLocals(L10n.of(context)!));
+
+  String displayname = room.getLocalizedDisplayname(MatrixLocals(L10n.of(context)!));
+
+  // If the name is “Group with honor”, we replace it with “Ticket”.
+  if (displayname == "Groupe avec honoroit") {
+    displayname = "Ticket";
+  }
 
   return RoomDisplayInfo(
     networkColor: socialNetwork.color,
